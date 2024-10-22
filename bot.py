@@ -16,40 +16,43 @@ MAIN_MENU, CHOOSING_CRYPTO, CHOOSING_CURRENCY, TYPING_SEARCH, COMPARE_SELECTION 
 # Supported currencies
 SUPPORTED_CURRENCIES = ['usd', 'eur', 'gbp', 'jpy', 'aud', 'cad', 'chf', 'cny', 'inr']
 
-
-
 # API HELPER FUNCTIONS
 
-# def get_top_cryptos(limit=100):
-def get_top_cryptos(is_comparing=False,limit=100):
-    
-    response = requests.get(f"{COINGECKO_API_URL}/coins/markets", params={
-        'vs_currency': 'usd',
-        'order': 'market_cap_desc',
-        'per_page': limit,
-        'page': 1,
-        'sparkline': False
-    })
-    if response.status_code == 200:
-        return response.json()
+def get_top_cryptos(limit=100):
+    try:
+        response = requests.get(f"{COINGECKO_API_URL}/coins/markets", params={
+            'vs_currency': 'usd',
+            'order': 'market_cap_desc',
+            'per_page': limit,
+            'page': 1,
+            'sparkline': False
+        })
+        if response.status_code == 200:
+            return response.json()
+    except requests.RequestException as e:
+        print(f"Error fetching top cryptos: {e}")
     return []
-
 
 
 def get_trending_cryptos():
-    response = requests.get(f"{COINGECKO_API_URL}/search/trending")
-    if response.status_code == 200:
-        return response.json().get('coins', [])
+    try:
+        response = requests.get(f"{COINGECKO_API_URL}/search/trending")
+        if response.status_code == 200:
+            return response.json().get('coins', [])
+    except requests.RequestException as e:
+        print(f"Error fetching trending cryptos: {e}")
     return []
 
-def get_crypto_details(crypto_id: str, currency: str = 'usd'):
-    params = {'ids': crypto_id, 'vs_currencies': currency, 'include_24hr_change': 'true', 'include_market_cap': 'true'}
-    response = requests.get(f"{COINGECKO_API_URL}/simple/price", params=params)
-    if response.status_code == 200:
-        data = response.json()
-        return data.get(crypto_id)
-    return None
 
+def get_crypto_details(crypto_id: str, currency: str = 'usd'):
+    try:
+        params = {'ids': crypto_id, 'vs_currencies': currency, 'include_24hr_change': 'true', 'include_market_cap': 'true'}
+        response = requests.get(f"{COINGECKO_API_URL}/simple/price", params=params)
+        if response.status_code == 200:
+            return response.json().get(crypto_id)
+    except requests.RequestException as e:
+        print(f"Error fetching crypto details: {e}")
+    return None
 
 # COMMAND HANDLER FUNCTIONS
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -62,253 +65,73 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "Commands:\n"
         "/start - Show main menu\n"
         "/help - Show this help message\n"
-        "/convert - Convert Currencies From One To Another\n\n"
-        "You can check prices of top cryptocurrencies, view trending coins, search for a specific cryptocurrency or Convert them."
+        "/convert - Convert cryptocurrencies\n\n"
+        "You can check prices, view trending coins, search for a specific cryptocurrency, or convert them."
     )
     await update.message.reply_text(help_text)
 
-
-
-# Menu Display and Button Handlers
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, is_comparing: bool = False) -> None:
-   
     keyboard = [
         [InlineKeyboardButton("Top 100 Cryptocurrencies", callback_data='top100')],
         [InlineKeyboardButton("Trending Cryptocurrencies", callback_data='trending')],
-        [InlineKeyboardButton("Search Cryptocurrency", callback_data='search')],  # Added missing comma here
+        [InlineKeyboardButton("Search Cryptocurrency", callback_data='search')],
         [InlineKeyboardButton("Quit", callback_data='quit')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-   
-    # Show welcome message only when not comparing
-    if not is_comparing:
-        text = "Welcome to the Crypto Price Bot! What would you like to do?"
-    else:
-        text = "Select a cryptocurrency to compare."
-
-    if update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(text, reply_markup=reply_markup)
+    text = "Select an option below:" if is_comparing else "Welcome to the Crypto Price Bot! What would you like to do?"
+    await update.message.reply_text(text, reply_markup=reply_markup)
 
 
 async def show_crypto_list(update: Update, context: ContextTypes.DEFAULT_TYPE, cryptos, title) -> None:
-   
     keyboard = []
     for i in range(0, len(cryptos), 2):
-        row = []
-        for crypto in cryptos[i:i+2]:
-            crypto = crypto.get('item', crypto)
-            name = crypto.get('name', 'Unknown')
-            symbol = crypto.get('symbol', 'Unknown')
-            crypto_id = crypto.get('id', 'unknown')
-            row.append(InlineKeyboardButton(f"{name} ({symbol.upper()})", callback_data=f"crypto:{crypto_id}"))
+        row = [InlineKeyboardButton(f"{crypto['name']} ({crypto['symbol'].upper()})", callback_data=f"crypto:{crypto['id']}") for crypto in cryptos[i:i+2]]
         keyboard.append(row)
-    
     keyboard.append([InlineKeyboardButton("Back to Main Menu", callback_data='main_menu')])
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    if update.callback_query:
-        await update.callback_query.edit_message_text(title, reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(title, reply_markup=reply_markup)
+    await update.message.reply_text(title, reply_markup=reply_markup)
+
 
 async def show_crypto_details(update: Update, context: ContextTypes.DEFAULT_TYPE, crypto_id: str, currency: str) -> None:
-    await asyncio.sleep(1)  # Add a delay to avoid hitting rate limits
+    await asyncio.sleep(1)  # Avoid API rate limits
     details = get_crypto_details(crypto_id, currency)
     if details:
         price = details.get(currency, 'N/A')
         change_24h = details.get(f'{currency}_24h_change', 'N/A')
-        market_cap = details.get(f'{currency}_market_cap', 'N/A')
-        trading_volume = details.get(f'{currency}_24h_vol', 'N/A')
-
-        try:
-            change_24h_float = float(change_24h)
-            change_symbol = '🔺' if change_24h_float > 0 else '🔻' if change_24h_float < 0 else '➖'
-        except (ValueError, TypeError):
-            change_symbol = '➖'
-
         message = (
             f"💰 {crypto_id.capitalize()} ({currency.upper()})\n"
             f"Price: {price} {currency.upper()}\n"
-            f"24h Change: {change_symbol} {change_24h}%\n"
-            f"Market Cap: {market_cap} {currency.upper()}\n"
-            f"24h Trading Volume: {trading_volume} {currency.upper()}\n\n"
+            f"24h Change: {change_24h}%\n"
         )
-
-        # Check if the new message is different from the current message
-        current_message = update.callback_query.message.text
-        if message != current_message:
-            await update.callback_query.edit_message_text(message)
-
-            # Adding options: Compare with other cryptos or Main Menu
-            keyboard = [
-                [InlineKeyboardButton("Compare with another Cryptocurrency", callback_data='compare_selection')],
-                [InlineKeyboardButton("Main Menu", callback_data='main_menu')],
-                [InlineKeyboardButton("Quit", callback_data='quit')]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.callback_query.message.reply_text("Select an option:", reply_markup=reply_markup)
+        await update.callback_query.edit_message_text(message)
     else:
-        await update.callback_query.edit_message_text("🚫 Unable to retrieve cryptocurrency details.")
+        await update.callback_query.edit_message_text("Unable to retrieve cryptocurrency details.")
 
 
-
-async def show_currency_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-  
-    keyboard = [
-        [InlineKeyboardButton(currency.upper(), callback_data=f"currency:{currency}")]
-        for currency in SUPPORTED_CURRENCIES
-    ]
-    keyboard.append([InlineKeyboardButton("Back to Main Menu", callback_data='main_menu')])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.callback_query.edit_message_text('Choose a currency:', reply_markup=reply_markup)
-
-    
-
-async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    
-    query = update.callback_query
-   
-    await query.answer()
-
-    if query.data == 'main_menu':
-        # Instead of deleting the message, just edit it to show the main menu
-        try:
-             await show_main_menu(update, context) 
-        except Exception as e:
-            print(f"Error displaying main menu: {e}")
-        
-        return MAIN_MENU
-
-    if query.data == 'top100':
-        await query.edit_message_text("Fetching top cryptocurrencies, please wait...")
-        cryptos = get_top_cryptos()  # No arguments passed
-        await show_crypto_list(update, context, cryptos, "Top 100 Cryptocurrencies:")
-        return CHOOSING_CRYPTO
-    elif query.data == 'quit':
-        # Quit the current conversation and show a message
-        await query.edit_message_text("You can return to the main menu anytime by using /start.")
-       
-        return MAIN_MENU  # This will allow the user to start again later
-
-        
-    elif query.data == 'trending':
-        await query.edit_message_text("Fetching trending cryptocurrencies, please wait...")
-        cryptos = get_trending_cryptos()
-        await show_crypto_list(update, context, cryptos, "Trending Cryptocurrencies:")
-      
-        return CHOOSING_CRYPTO
-    elif query.data == 'search':
-        await query.edit_message_text("Please enter the name of the cryptocurrency you want to check:")
-       
-        return TYPING_SEARCH
-    elif query.data.startswith('crypto:'):
-        context.user_data['crypto'] = query.data.split(':')[1]
-        await show_currency_options(update, context)
-       
-        return CHOOSING_CURRENCY
-    elif query.data.startswith('currency:'):
-        currency = query.data.split(':')[1]
-        crypto_id = context.user_data.get('crypto', 'bitcoin')
-        await show_crypto_details(update, context, crypto_id, currency)
-       
-        return COMPARE_SELECTION
-    elif query.data == 'compare_selection':
-        crypto_id = context.user_data.get('crypto')
-
-        if not crypto_id:
-            await query.edit_message_text("Please select a cryptocurrency before comparing.")
-            return
-
-        # Fetch the top 100 currencies again for selection
-        await query.edit_message_text("Fetching top 100 currencies for comparison, please wait...")
-        cryptos = get_top_cryptos(is_comparing=True)  # Fetch top 100 for comparison
-        await show_crypto_list(update, context, cryptos, f"Compare {crypto_id} with another currency:")
-        
-        # Now wait for the user to select a new currency to compare
-        return CHOOSING_CURRENCY
-
-    elif query.data == 'cancel_compare':
-        await query.edit_message_text("Comparison cancelled.")
-       
-    else:
-        await query.edit_message_text("Invalid selection. Returning to main menu.")
-        await show_main_menu(update, context)
-        
-        return MAIN_MENU
-
-
-
-
-# **New Function to Show Comparison Options**
-# Updated show_compare_options function
-async def show_compare_options(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    
-    cryptos = get_top_cryptos()  # Fetch the top 100 cryptocurrencies
-
-    keyboard = []
-    for i in range(0, len(cryptos), 2):
-        row = []
-        for crypto in cryptos[i:i + 2]:
-            name = crypto.get('name', 'Unknown')
-            symbol = crypto.get('symbol', 'Unknown')
-            crypto_id = crypto.get('id', 'unknown')
-            row.append(InlineKeyboardButton(f"{name} ({symbol.upper()})", callback_data=f"compare:{crypto_id}"))
-        keyboard.append(row)
-
-    keyboard.append([InlineKeyboardButton("Cancel", callback_data='cancel_compare')])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    # Skip the welcome message during comparison
-    await show_main_menu(update, context, is_comparing=True)
-
-
-
-# **New Function to Handle Comparison Prompt**
-async def compare_prompt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # Send the message asking user to select another cryptocurrency
-    await update.callback_query.message.reply_text("Select the another Cryptocurrency...")
-    
-    # Then proceed to show the comparison options
-    await show_compare_options(update, context)
-    return COMPARE_SELECTION
-
-
-# 6. Message and Error Handlers
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    
     user_input = update.message.text.lower()
     search_results = requests.get(f"{COINGECKO_API_URL}/search", params={'query': user_input}).json()
     coins = search_results.get('coins', [])
-    
     if coins:
         await show_crypto_list(update, context, coins[:10], "Search Results:")
         return CHOOSING_CRYPTO
     else:
-        await update.message.reply_text("Sorry, I couldn't find any cryptocurrency matching your search.")
+        await update.message.reply_text("No results found.")
         await show_main_menu(update, context)
         return MAIN_MENU
 
-# Error Handler
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    
-    print(f"Update {update} caused error {context.error}")
+    print(f"Error: {context.error}")
 
-
-# Convert Currency into USD
-# Function to fetch crypto price
 def get_crypto_price(crypto: str, currency: str = 'usd'):
     params = {'ids': crypto, 'vs_currencies': currency}
     response = requests.get(COINGECKO_API_URL+'/simple/price', params=params)
     data = response.json()
     return data.get(crypto, {}).get(currency, 'Price not available')
 
-
-# Convert crypto to different currencies
 async def convert_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 3:
-        await update.message.reply_text("Please use the format: /convert <crypto> <currency> <amount>\n\nFor Example `/convert bitcoin usd 1` - Convert bitcoin price into usd by fettching real time data\n\n")
+        await update.message.reply_text("Usage: /convert <crypto> <currency> <amount>")
         return
     crypto = context.args[0].lower()
     currency = context.args[1].lower()
@@ -320,10 +143,7 @@ async def convert_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text('Price not available.')
 
-
-# Add alerts 
-
-# Function to set up price alerts
+# Price Alert Setup
 user_alerts = {}
 
 def set_price_alert(user_id, crypto, threshold_price, condition):
@@ -331,69 +151,68 @@ def set_price_alert(user_id, crypto, threshold_price, condition):
 
 async def set_alert_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 3:
-        usage_text = (
-            "Please use the format: /setalert <crypto> <above|below> <price>\n"
-        )
-        await update.message.reply_text(usage_text)
+        await update.message.reply_text("Usage: /setalert <crypto> <above|below> <price>")
         return
-
-    crypto = context.args[0].lower()  # Get the cryptocurrency (e.g., 'bitcoin')
-    condition = context.args[1].lower()  # Get the condition (e.g., 'above' or 'below')
-    price = float(context.args[2])  # Get the price threshold
-
+    crypto = context.args[0].lower()
+    condition = context.args[1].lower()
+    price = float(context.args[2])
     if condition not in ['above', 'below']:
-        await update.message.reply_text("Please specify 'above' or 'below' for the price alert condition.")
+        await update.message.reply_text("Specify 'above' or 'below'.")
         return
-
-    user_id = update.message.from_user.id  # Get the user's ID
-
-    # Save the alert with the condition (above or below)
+    user_id = update.message.from_user.id
     set_price_alert(user_id, crypto, price, condition)
-
-    # Notify the user that the alert has been set
-    await update.message.reply_text(
-        f"Price alert set for {crypto.capitalize()} when price is {condition} ${price} USD.\n"
-        "You'll be notified when this condition is met."
-    )
+    await update.message.reply_text(f"Alert set for {crypto.capitalize()} {condition} ${price}.")
 
 async def alert_check(context: ContextTypes.DEFAULT_TYPE):
     for user_id, (crypto, threshold_price, condition) in user_alerts.items():
         price = get_crypto_price(crypto)
+        if (condition == 'above' and price > threshold_price) or (condition == 'below' and price < threshold_price):
+            await context.bot.send_message(user_id, f"Alert: {crypto.capitalize()} is now {condition} ${threshold_price}.")
+            del user_alerts[user_id]  # Remove alert after notifying user
 
-        # Check if the condition (above or below) is met
-        if (condition == 'above' and price >= threshold_price) or (condition == 'below' and price <= threshold_price):
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"Price alert! {crypto.capitalize()} has {'exceeded' if condition == 'above' else 'dropped below'} ${threshold_price} USD. Current price: ${price} USD."
-            )
-
-
+# Main function
 def main() -> None:
     app = Application.builder().token(BOT_TOKEN).build()
-
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            MAIN_MENU: [CallbackQueryHandler(button_click)],
-            CHOOSING_CRYPTO: [CallbackQueryHandler(button_click)],
-            CHOOSING_CURRENCY: [CallbackQueryHandler(button_click)],
-            TYPING_SEARCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)],
-            COMPARE_SELECTION: [CallbackQueryHandler(button_click)]  # Added COMPARE_SELECTION
-        },
-        fallbacks=[CommandHandler("start", start)],
-        per_message=False
-    )
-
-    app.add_handler(conv_handler)
-    app.add_handler(CommandHandler('convert', convert_command))
-    app.add_handler(CommandHandler('setalert', set_alert_command))
+    
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("convert", convert_command))
+    app.add_handler(CommandHandler("setalert", set_alert_command))
+
+    # Alert checking job
+    app.job_queue.run_repeating(alert_check, interval=300, first=10)
+
     app.add_error_handler(error_handler)
-    # Run alert checker periodically
-    app.job_queue.run_repeating(alert_check, interval=60)
 
-    print('Starting bot...')
-    app.run_polling(poll_interval=3)
+    # Start the bot
+    app.run_polling()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
+"""
+Main Menu: Users can view the top 100 cryptocurrencies, trending coins, or search for specific cryptocurrencies.
+Cryptocurrency Price Alerts: Users can set price alerts for when a cryptocurrency goes above or below a certain price.
+Convert Command: Users can convert cryptocurrencies based on the latest prices.
+Improved Error Handling: The code catches exceptions in API calls to avoid crashes.
+Rate Limiting: asyncio.sleep() is used to avoid hitting the Coingecko API rate limits.
+API Rate Limits: The Coingecko API has rate limits, and calling it frequently without handling delays could cause issues.
+
+Solution: Add delays (asyncio.sleep) before making API requests to avoid hitting the rate limit too frequently.
+Uncaught Exception Handling: Some parts of the code may encounter uncaught exceptions, especially when interacting with external APIs.
+
+Solution: Add proper error handling for API requests using try-except blocks to avoid crashes.
+Unused Arguments in get_top_cryptos(): The is_comparing flag in the get_top_cryptos() function isn't being used in your logic.
+
+Solution: Either implement a behavior for is_comparing or remove it if unnecessary.
+Outdated Conversation Flow: In the compare section, the user is prompted to select a cryptocurrency, but the system doesn't store the second cryptocurrency to compare.
+
+Solution: Store both cryptocurrencies and show the comparison results after selection.
+Missing Context Cleanup: After setting alerts or showing crypto details, the context.user_data is not cleaned up, which may cause bugs in repeated queries.
+
+Solution: Add proper cleanup of the context data to ensure state consistency.
+app.job_queue.run_repeating() Error: The job_queue is not correctly initialized before usage.
+
+Solution: Initialize the job queue before running jobs like alert_check.
+Error in get_crypto_details(): If a cryptocurrency is not found, the details object could be None, which might result in KeyError when trying to access its attributes.
+
+"""
