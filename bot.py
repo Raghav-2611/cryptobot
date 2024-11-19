@@ -8,22 +8,17 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters, JobQueue
 )
 
-# Constants
 BOT_USERNAME: Final = "CryptoPriceBot"
 BOT_TOKEN: Final = "Your Bot Token"
 COINGECKO_API_URL: Final = "https://api.coingecko.com/api/v3"
 
-# Conversation states
 MAIN_MENU, CHOOSING_CRYPTO, CHOOSING_CURRENCY, SETTING_ALERT = range(4)
 
-# Supported currencies
 SUPPORTED_CURRENCIES = ['usd', 'eur', 'gbp', 'jpy', 'aud', 'cad', 'inr']
 
-# User data
 user_favorites = {}
 user_alerts = {}
 
-# Utility functions
 def api_request(endpoint: str, params: dict = None):
     """Helper function to make API requests."""
     try:
@@ -34,7 +29,6 @@ def api_request(endpoint: str, params: dict = None):
         print(f"API Error: {e}")
         return None
 
-# Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start the bot and show the main menu."""
     await show_main_menu(update, context)
@@ -57,7 +51,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# Main menu
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show main menu options."""
     keyboard = [
@@ -88,7 +81,6 @@ async def handle_crypto_details(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         await update.callback_query.edit_message_text("❌ Failed to fetch crypto details.")
 
-# Favorites management
 async def show_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Display the user's favorite cryptocurrencies."""
     user_id = update.callback_query.from_user.id
@@ -107,7 +99,6 @@ async def add_to_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE, c
     user_favorites.setdefault(user_id, []).append(crypto_id)
     await update.callback_query.edit_message_text(f"Added {crypto_id.capitalize()} to favorites.")
 
-# Alert management
 async def set_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Set a price alert for a cryptocurrency."""
     if len(context.args) < 3:
@@ -133,21 +124,16 @@ async def alert_check(context: ContextTypes.DEFAULT_TYPE):
             )
             del user_alerts[user_id]
 
-# Main function
 def main():
     """Run the bot."""
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("setalert", set_alert))
 
-    # Callback handlers
     app.add_handler(CallbackQueryHandler(show_main_menu, pattern="main_menu"))
     app.add_handler(CallbackQueryHandler(show_favorites, pattern="favorites"))
-
-    # Start the bot
     app.run_polling()
 
 if __name__ == "__main__":
