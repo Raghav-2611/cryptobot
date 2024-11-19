@@ -20,8 +20,7 @@ SUPPORTED_CURRENCIES = ['usd', 'eur', 'gbp', 'jpy', 'aud', 'cad', 'inr']
 user_favorites = {}
 user_alerts = {}
 
-# Cache for frequently accessed data
-cache = TTLCache(maxsize=100, ttl=300)  # Cache up to 100 items, each for 300 seconds
+cache = TTLCache(maxsize=100, ttl=300)
 
 def api_request(endpoint: str, params: dict = None):
     """Helper function to make API requests with caching."""
