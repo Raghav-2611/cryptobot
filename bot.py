@@ -5,8 +5,9 @@ import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
-    ContextTypes, MessageHandler, filters, JobQueue
+    ContextTypes, filters
 )
+from cachetools import TTLCache
 
 BOT_USERNAME: Final = "CryptoPriceBot"
 BOT_TOKEN: Final = "Your Bot Token"
@@ -19,12 +20,20 @@ SUPPORTED_CURRENCIES = ['usd', 'eur', 'gbp', 'jpy', 'aud', 'cad', 'inr']
 user_favorites = {}
 user_alerts = {}
 
+# Cache for frequently accessed data
+cache = TTLCache(maxsize=100, ttl=300)  # Cache up to 100 items, each for 300 seconds
+
 def api_request(endpoint: str, params: dict = None):
-    """Helper function to make API requests."""
+    """Helper function to make API requests with caching."""
+    cache_key = f"{endpoint}:{str(params)}"
+    if cache_key in cache:
+        return cache[cache_key]
     try:
         response = requests.get(f"{COINGECKO_API_URL}/{endpoint}", params=params)
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        cache[cache_key] = data
+        return data
     except requests.RequestException as e:
         print(f"API Error: {e}")
         return None
@@ -67,6 +76,20 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+async def show_top_cryptos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Display top cryptocurrencies."""
+    top_cryptos = api_request("coins/markets", {"vs_currency": "usd", "order": "market_cap_desc", "per_page": 10})
+    if not top_cryptos:
+        await update.callback_query.edit_message_text("❌ Failed to fetch top cryptocurrencies.")
+        return
+    keyboard = [
+        [InlineKeyboardButton(f"{crypto['name']} ({crypto['symbol'].upper()})", callback_data=f"crypto:{crypto['id']}")]
+        for crypto in top_cryptos
+    ]
+    keyboard.append([InlineKeyboardButton("Back to Main Menu", callback_data="main_menu")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.callback_query.edit_message_text("📈 *Top Cryptocurrencies:*", reply_markup=reply_markup, parse_mode="Markdown")
+
 async def handle_crypto_details(update: Update, context: ContextTypes.DEFAULT_TYPE, crypto_id: str):
     """Fetch and display detailed cryptocurrency information."""
     currency = "usd"
@@ -93,46 +116,15 @@ async def show_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.callback_query.edit_message_text("⭐ Your Favorites:", reply_markup=reply_markup)
 
-async def add_to_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE, crypto_id: str):
-    """Add a cryptocurrency to the user's favorites."""
-    user_id = update.callback_query.from_user.id
-    user_favorites.setdefault(user_id, []).append(crypto_id)
-    await update.callback_query.edit_message_text(f"Added {crypto_id.capitalize()} to favorites.")
-
-async def set_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Set a price alert for a cryptocurrency."""
-    if len(context.args) < 3:
-        await update.message.reply_text("Usage: /setalert <crypto> <above|below> <price>")
-        return
-    crypto = context.args[0]
-    condition = context.args[1]
-    threshold = float(context.args[2])
-    user_id = update.message.from_user.id
-    user_alerts[user_id] = (crypto, condition, threshold)
-    await update.message.reply_text(f"Alert set for {crypto.capitalize()} {condition} ${threshold}.")
-
-async def alert_check(context: ContextTypes.DEFAULT_TYPE):
-    """Check alerts periodically."""
-    for user_id, (crypto, condition, threshold) in list(user_alerts.items()):
-        price = api_request("simple/price", {"ids": crypto, "vs_currencies": "usd"})
-        if not price:
-            continue
-        current_price = price[crypto]["usd"]
-        if (condition == "above" and current_price > threshold) or (condition == "below" and current_price < threshold):
-            await context.bot.send_message(
-                user_id, f"📈 Alert: {crypto.capitalize()} is now {condition} ${threshold}!"
-            )
-            del user_alerts[user_id]
-
 def main():
     """Run the bot."""
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("setalert", set_alert))
 
     app.add_handler(CallbackQueryHandler(show_main_menu, pattern="main_menu"))
+    app.add_handler(CallbackQueryHandler(show_top_cryptos, pattern="top100"))
     app.add_handler(CallbackQueryHandler(show_favorites, pattern="favorites"))
     app.run_polling()
 
